@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 
 use crate::file_ops::files_from;
 
@@ -71,19 +73,18 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
         }
     });
 
-    let mut existing_files = HashSet::new();
+    let existing_files = Arc::new(Mutex::new(HashSet::new()));
+    let output_dir = Arc::new(output_dir);
 
-    // Основной процесс обработки файлов
-    for entry in files {
+    files.par_iter().for_each(|entry| {
         let file_name = entry.file_name().to_string_lossy().to_string();
         current_file_pb.set_message(format!("Обработка: {}", file_name));
 
-        // Определяем путь назначения
-        let mut dest_path = PathBuf::from(&output_dir).join(&file_name);
+        let mut dest_path = PathBuf::from(&*output_dir).join(&file_name);
         let mut counter = 1;
 
-        // Проверка уникальности имени файла
-        while existing_files.contains(dest_path.to_str().unwrap()) {
+        let mut existing_files_lock = existing_files.lock().unwrap();
+        while existing_files_lock.contains(dest_path.to_str().unwrap()) {
             let new_name = match dest_path.extension() {
                 Some(ext) => format!(
                     "{} ({}).{}",
@@ -93,7 +94,7 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
                 ),
                 None => format!("{} ({})", file_name, counter),
             };
-            dest_path = PathBuf::from(&output_dir).join(new_name);
+            dest_path = PathBuf::from(&*output_dir).join(new_name);
             counter += 1;
         }
 
@@ -112,20 +113,19 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
                 e
             );
         } else {
-            existing_files.insert(dest_path.to_str().unwrap().to_string());
+            existing_files_lock.insert(dest_path.to_str().unwrap().to_string());
         }
 
-        pb.inc(1); // Увеличиваем общий прогресс
-    }
+        pb.inc(1);
+    });
 
     current_file_pb.finish_and_clear();
     pb.finish_with_message("Обработка файлов завершена");
 
-    // Завершаем потоки
     handle_pb_state.join().unwrap();
 
     // Проверяем, были ли файлы успешно обработаны
-    if existing_files.is_empty() {
+    if existing_files.lock().unwrap().is_empty() {
         eprintln!("Ничего не сделано.");
     } else {
         println!("Все файлы уплощены в {}", output_dir);

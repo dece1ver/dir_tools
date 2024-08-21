@@ -1,4 +1,6 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rayon::prelude::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -33,7 +35,6 @@ pub fn process_expose(directory: &str, _force: bool) {
                     .progress_chars("=> "),
             );
 
-            // Поток для обновления состояния прогрессбаров
             let current_file_pb_clone = current_file_pb.clone();
             let pb_clone = pb.clone();
             let handle_pb_state = thread::spawn(move || {
@@ -49,9 +50,7 @@ pub fn process_expose(directory: &str, _force: bool) {
             pb.finish_with_message("Операция завершена");
             current_file_pb.finish_and_clear();
 
-            // Завершаем потоки
             handle_pb_state.join().unwrap();
-
             println!("Раскрыто файлов: {}", files.len());
         } else {
             print_unix_warning(directory);
@@ -68,13 +67,12 @@ pub fn process_expose(directory: &str, _force: bool) {
                 .unwrap(),
         );
         count_pb.enable_steady_tick(Duration::from_millis(100));
-        thread::sleep(Duration::from_millis(5000));
+
         // Собираем список файлов для обработки
         let files = files_from(directory);
-
         count_pb.finish_and_clear();
 
-        let mut processed_count = 0; // Счетчик обработанных файлов
+        let processed_count = AtomicUsize::new(0); // Счетчик обработанных файлов
 
         // Создаем прогресс-бар для обработки текущего файла
         let current_file_pb = mp.add(ProgressBar::new(0));
@@ -93,7 +91,6 @@ pub fn process_expose(directory: &str, _force: bool) {
                 .progress_chars("=> "),
         );
 
-        // Поток для обновления состояния прогрессбаров
         let current_file_pb_clone = current_file_pb.clone();
         let pb_clone = pb.clone();
         let handle_pb_state = thread::spawn(move || {
@@ -104,22 +101,20 @@ pub fn process_expose(directory: &str, _force: bool) {
             }
         });
 
-        for entry in files {
+        files.par_iter().for_each(|entry| {
             let path = entry.path().display().to_string();
             current_file_pb.set_message(format!("Обработка: {}", entry.file_name().to_string_lossy().to_string()));
+
             if remove_hidden_attribute(&path) {
-                processed_count += 1;
+                processed_count.fetch_add(1, Ordering::SeqCst);
             }
             pb.inc(1);
-
-        }
+        });
 
         pb.finish_with_message("Операция завершена");
         current_file_pb.finish_and_clear();
 
-        // Завершаем потоки
         handle_pb_state.join().unwrap();
-
-        println!("Раскрыто файлов: {}", processed_count); // Выводим количество обработанных файлов
+        println!("Раскрыто файлов: {}", processed_count.load(Ordering::SeqCst)); // Выводим количество обработанных файлов
     }
 }
