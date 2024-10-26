@@ -33,7 +33,7 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
 
     let files = files_from(directory);
 
-    count_pb.finish_and_clear();
+    count_pb.finish_with_message(format!("завершен, файлов: {}", files.len()));
 
     if files.is_empty() {
         eprintln!(

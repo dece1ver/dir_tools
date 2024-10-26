@@ -35,7 +35,11 @@ pub fn process_rename(directory: &str, target_type: &RenameTarget, find: &str, r
         RenameTarget::Both => entries_from(directory),
     };
 
-    count_pb.finish_and_clear();
+    count_pb.finish_with_message(format!(
+        "{} завершен, файлов: {}",
+        objects_title,
+        entries.len()
+    ));
 
     if entries.is_empty() {
         eprintln!(

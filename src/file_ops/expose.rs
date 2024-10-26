@@ -10,6 +10,9 @@ use crate::platform::unix::{print_unix_warning, rename_hidden_files};
 #[cfg(windows)]
 use crate::platform::windows::remove_hidden_attribute;
 
+const TICK_DURATION: Duration = Duration::from_millis(100);
+const PROGRESS_CHARS: &str = "=> ";
+
 pub fn process_expose(directory: &str, _force: bool) {
     let mp = MultiProgress::new();
 
@@ -17,29 +20,31 @@ pub fn process_expose(directory: &str, _force: bool) {
     {
         if _force {
             let files = files_from(directory);
+            let file_count = files.len() as u64;
 
             let current_file_pb = mp.add(ProgressBar::new(0));
             current_file_pb.set_style(
                 ProgressStyle::default_spinner()
                     .template("{spinner:.green} {msg}")
-                    .unwrap(),
+                    .expect("Failed to create spinner style"),
             );
 
-            let pb = mp.add(ProgressBar::new(files.len() as u64));
+            let pb = mp.add(ProgressBar::new(file_count));
             pb.set_style(
                 ProgressStyle::default_bar()
                     .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                    .unwrap()
-                    .progress_chars("=> "),
+                    .expect("Failed to create progress bar style")
+                    .progress_chars(PROGRESS_CHARS),
             );
 
             let current_file_pb_clone = current_file_pb.clone();
             let pb_clone = pb.clone();
+
             let handle_pb_state = thread::spawn(move || {
                 while !current_file_pb_clone.is_finished() && !pb_clone.is_finished() {
                     current_file_pb_clone.tick();
                     pb_clone.tick();
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(TICK_DURATION);
                 }
             });
 
@@ -48,8 +53,10 @@ pub fn process_expose(directory: &str, _force: bool) {
             pb.finish_with_message("Операция завершена");
             current_file_pb.finish_and_clear();
 
-            handle_pb_state.join().unwrap();
-            println!("Раскрыто файлов: {}", files.len());
+            handle_pb_state
+                .join()
+                .expect("Progress bar thread panicked");
+            println!("Раскрыто файлов: {file_count}");
         } else {
             print_unix_warning(directory);
         }
@@ -61,12 +68,13 @@ pub fn process_expose(directory: &str, _force: bool) {
         count_pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} Подсчет файлов...")
-                .unwrap(),
+                .expect("Failed to create count spinner style"),
         );
-        count_pb.enable_steady_tick(Duration::from_millis(100));
+        count_pb.enable_steady_tick(TICK_DURATION);
 
         let files = files_from(directory);
-        count_pb.finish_and_clear();
+        let file_count = files.len();
+        count_pb.finish_with_message(format!("завершен, файлов: {file_count}"));
 
         let processed_count = AtomicUsize::new(0);
 
@@ -74,33 +82,33 @@ pub fn process_expose(directory: &str, _force: bool) {
         current_file_pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
-                .unwrap(),
+                .expect("Failed to create file spinner style"),
         );
 
-        let pb = mp.add(ProgressBar::new(files.len() as u64));
+        let pb = mp.add(ProgressBar::new(file_count as u64));
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                .unwrap()
-                .progress_chars("=> "),
+                .expect("Failed to create progress bar style")
+                .progress_chars(PROGRESS_CHARS),
         );
 
         let current_file_pb_clone = current_file_pb.clone();
         let pb_clone = pb.clone();
+
         let handle_pb_state = thread::spawn(move || {
             while !current_file_pb_clone.is_finished() && !pb_clone.is_finished() {
                 current_file_pb_clone.tick();
                 pb_clone.tick();
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(TICK_DURATION);
             }
         });
 
         files.par_iter().for_each(|entry| {
             let path = entry.path().display().to_string();
-            current_file_pb.set_message(format!(
-                "Обработка: {}",
-                entry.file_name().to_string_lossy().to_string()
-            ));
+            let filename = entry.file_name().to_string_lossy();
+
+            current_file_pb.set_message(format!("Обработка: {filename}"));
 
             if remove_hidden_attribute(&path) {
                 processed_count.fetch_add(1, Ordering::SeqCst);
@@ -111,10 +119,11 @@ pub fn process_expose(directory: &str, _force: bool) {
         pb.finish_with_message("Операция завершена");
         current_file_pb.finish_and_clear();
 
-        handle_pb_state.join().unwrap();
-        println!(
-            "Раскрыто файлов: {}",
-            processed_count.load(Ordering::SeqCst)
-        );
+        handle_pb_state
+            .join()
+            .expect("Progress bar thread panicked");
+
+        let processed = processed_count.load(Ordering::SeqCst);
+        println!("Раскрыто файлов: {processed}");
     }
 }
