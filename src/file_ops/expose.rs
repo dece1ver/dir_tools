@@ -18,7 +18,6 @@ pub fn process_expose(directory: &str, _force: bool) {
         if _force {
             let files = files_from(directory);
 
-            // Создаем прогресс-бар для обработки текущего файла
             let current_file_pb = mp.add(ProgressBar::new(0));
             current_file_pb.set_style(
                 ProgressStyle::default_spinner()
@@ -26,7 +25,6 @@ pub fn process_expose(directory: &str, _force: bool) {
                     .unwrap(),
             );
 
-            // Создаем прогресс-бар для общего прогресса
             let pb = mp.add(ProgressBar::new(files.len() as u64));
             pb.set_style(
                 ProgressStyle::default_bar()
@@ -59,7 +57,6 @@ pub fn process_expose(directory: &str, _force: bool) {
 
     #[cfg(windows)]
     {
-        // Создаем спиннер для подсчета файлов
         let count_pb = mp.add(ProgressBar::new_spinner());
         count_pb.set_style(
             ProgressStyle::default_spinner()
@@ -68,13 +65,11 @@ pub fn process_expose(directory: &str, _force: bool) {
         );
         count_pb.enable_steady_tick(Duration::from_millis(100));
 
-        // Собираем список файлов для обработки
         let files = files_from(directory);
         count_pb.finish_and_clear();
 
-        let processed_count = AtomicUsize::new(0); // Счетчик обработанных файлов
+        let processed_count = AtomicUsize::new(0);
 
-        // Создаем прогресс-бар для обработки текущего файла
         let current_file_pb = mp.add(ProgressBar::new(0));
         current_file_pb.set_style(
             ProgressStyle::default_spinner()
@@ -82,7 +77,6 @@ pub fn process_expose(directory: &str, _force: bool) {
                 .unwrap(),
         );
 
-        // Создаем прогресс-бар для общего прогресса
         let pb = mp.add(ProgressBar::new(files.len() as u64));
         pb.set_style(
             ProgressStyle::default_bar()
@@ -103,7 +97,10 @@ pub fn process_expose(directory: &str, _force: bool) {
 
         files.par_iter().for_each(|entry| {
             let path = entry.path().display().to_string();
-            current_file_pb.set_message(format!("Обработка: {}", entry.file_name().to_string_lossy().to_string()));
+            current_file_pb.set_message(format!(
+                "Обработка: {}",
+                entry.file_name().to_string_lossy().to_string()
+            ));
 
             if remove_hidden_attribute(&path) {
                 processed_count.fetch_add(1, Ordering::SeqCst);
@@ -115,6 +112,9 @@ pub fn process_expose(directory: &str, _force: bool) {
         current_file_pb.finish_and_clear();
 
         handle_pb_state.join().unwrap();
-        println!("Раскрыто файлов: {}", processed_count.load(Ordering::SeqCst)); // Выводим количество обработанных файлов
+        println!(
+            "Раскрыто файлов: {}",
+            processed_count.load(Ordering::SeqCst)
+        );
     }
 }
