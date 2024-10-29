@@ -1,3 +1,4 @@
+use append_folder_name::process_afn;
 use rename::process_rename;
 use walkdir::{DirEntry, WalkDir};
 
@@ -6,6 +7,7 @@ use flatten::process_flatten;
 
 use crate::args::Operation;
 
+pub mod append_folder_name;
 pub mod expose;
 pub mod flatten;
 pub mod rename;
@@ -29,6 +31,9 @@ pub fn process_directory(operation: &Operation) {
             replace,
         } => {
             process_rename(directory, &target_type, &find, &replace);
+        }
+        Operation::AFN { directory } => {
+            process_afn(&directory);
         }
     }
 }

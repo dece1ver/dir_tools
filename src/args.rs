@@ -43,6 +43,11 @@ pub enum Operation {
         #[arg(short = 'r', long)]
         replace: String,
     },
+    /// Добавить название родительской директории к файлам
+    AFN {
+        /// Директория для выполнения работы
+        directory: String,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, ValueEnum)]
