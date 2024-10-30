@@ -48,6 +48,19 @@ pub enum Operation {
         /// Директория для выполнения работы
         directory: String,
     },
+    /// Поиск
+    Find {
+        /// Директория для выполнения работы
+        directory: String,
+        /// Что искать
+        target: String,
+        /// Режим поиска
+        #[arg(short = 'm', long, default_value = "file-name")]
+        mode: FindMode,
+        /// Вывод (путь к файлу, если не указывать, то stdout)
+        #[arg(short = 'o', long, default_value = "")]
+        output: String,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, ValueEnum)]
@@ -55,4 +68,12 @@ pub enum RenameTarget {
     Dirs,
     Files,
     Both,
+}
+
+#[derive(Subcommand, Debug, Clone, ValueEnum)]
+pub enum FindMode {
+    FileName,
+    Content,
+    Regexp,
+    Gavriluk,
 }
