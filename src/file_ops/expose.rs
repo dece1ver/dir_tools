@@ -1,5 +1,7 @@
+use eyre::Result;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -13,7 +15,8 @@ use crate::platform::windows::remove_hidden_attribute;
 const TICK_DURATION: Duration = Duration::from_millis(100);
 const PROGRESS_CHARS: &str = "=> ";
 
-pub fn process_expose(directory: &str, _force: bool) {
+pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
+    let directory = directory.as_ref();
     let mp = MultiProgress::new();
 
     #[cfg(unix)]
@@ -66,30 +69,24 @@ pub fn process_expose(directory: &str, _force: bool) {
     {
         let count_pb = mp.add(ProgressBar::new_spinner());
         count_pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} Подсчет файлов...")
-                .expect("Failed to create count spinner style"),
+            ProgressStyle::default_spinner().template("{spinner:.green} Подсчет файлов...")?,
         );
         count_pb.enable_steady_tick(TICK_DURATION);
 
-        let files = files_from(directory);
+        let files = files_from(directory)?;
         let file_count = files.len();
         count_pb.finish_with_message(format!("завершен, файлов: {file_count}"));
 
         let processed_count = AtomicUsize::new(0);
 
         let current_file_pb = mp.add(ProgressBar::new(0));
-        current_file_pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .expect("Failed to create file spinner style"),
-        );
+        current_file_pb
+            .set_style(ProgressStyle::default_spinner().template("{spinner:.green} {msg}")?);
 
         let pb = mp.add(ProgressBar::new(file_count as u64));
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                .expect("Failed to create progress bar style")
+                .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
                 .progress_chars(PROGRESS_CHARS),
         );
 
@@ -119,11 +116,10 @@ pub fn process_expose(directory: &str, _force: bool) {
         pb.finish_with_message("Операция завершена");
         current_file_pb.finish_and_clear();
 
-        handle_pb_state
-            .join()
-            .expect("Progress bar thread panicked");
+        handle_pb_state.join().unwrap();
 
         let processed = processed_count.load(Ordering::SeqCst);
         println!("Раскрыто файлов: {processed}");
     }
+    Ok(())
 }

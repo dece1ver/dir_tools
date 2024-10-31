@@ -1,6 +1,7 @@
+use eyre::{eyre, Result};
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -9,18 +10,24 @@ use rayon::prelude::*;
 
 use crate::file_ops::files_from;
 
-pub fn process_flatten(directory: &str, output: &Option<String>, move_files: bool) {
-    let output_dir = output.clone().unwrap_or_else(|| {
-        let mut output_path = std::env::current_exe().unwrap();
-        output_path.pop();
-        output_path.push("flattened_files");
-        output_path.to_str().unwrap().to_string()
-    });
+pub fn process_flatten(
+    directory: impl AsRef<Path>,
+    output: &Option<String>,
+    move_files: bool,
+) -> Result<()> {
+    let directory = directory.as_ref();
 
-    if let Err(e) = fs::create_dir_all(&output_dir) {
-        eprintln!("Ошибка создания директории {}: {}", output_dir, e);
-        return;
-    }
+    let output_dir = match output {
+        Some(path) => path,
+        None => {
+            let mut output_path = std::env::current_exe()?;
+            output_path.pop();
+            output_path.push("flattened_files");
+            &output_path.to_str().unwrap().to_string()
+        }
+    };
+
+    fs::create_dir_all(&output_dir)?;
 
     let mp = MultiProgress::new();
     let count_pb = mp.add(ProgressBar::new_spinner());
@@ -31,16 +38,15 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
     );
     count_pb.enable_steady_tick(Duration::from_millis(100));
 
-    let files = files_from(directory);
+    let files = files_from(directory)?;
 
     count_pb.finish_with_message(format!("завершен, файлов: {}", files.len()));
 
     if files.is_empty() {
-        eprintln!(
+        return Err(eyre!(
             "Нет доступных файлов для обработки в директории: {}",
-            directory
-        );
-        return;
+            directory.display()
+        ));
     }
 
     let current_file_pb = mp.add(ProgressBar::new(0));
@@ -129,4 +135,5 @@ pub fn process_flatten(directory: &str, output: &Option<String>, move_files: boo
     } else {
         println!("Все файлы уплощены в {}", output_dir);
     }
+    Ok(())
 }

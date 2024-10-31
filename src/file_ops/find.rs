@@ -1,41 +1,48 @@
+use eyre::Result;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use regex::Regex;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use walkdir::{DirEntry, WalkDir};
 
 use crate::args::FindMode;
 
+use super::{safe_file_name, safe_parent_dir};
+
 #[derive(Debug)]
 pub struct SearchResult {
-    path: String,
+    path: PathBuf,
     line_number: Option<usize>,
     matched_content: Option<String>,
 }
 
 pub fn process_find(
-    directory: &str,
-    target: &str,
+    directory: impl AsRef<Path>,
     mode: &FindMode,
-    output: &str,
-) -> io::Result<()> {
-    let mp = MultiProgress::new();
-    let search_pb = mp.add(ProgressBar::new_spinner());
-    search_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap(),
-    );
-    search_pb.enable_steady_tick(Duration::from_millis(100));
+    pattern: Option<&str>,
+    output: Option<impl AsRef<Path>>,
+) -> Result<()> {
+    let directory = directory.as_ref();
+    println!("Поиск в директории: {}", directory.display());
+    println!("Режим поиска: {}", mode);
+    if let Some(pattern) = pattern {
+        println!("Паттерн: {}", pattern);
+    }
 
-    let regex = if let FindMode::Regexp = mode {
-        Some(Regex::new(target).expect("Invalid regex pattern"))
-    } else {
-        None
-    };
+    let mp = MultiProgress::new();
+    let search_pb = mp.add(create_progress_bar());
+
+    let regex = pattern.and_then(|p| match mode {
+        FindMode::Regexp => Some(Regex::new(p).expect("Некорректное регулярное выражение")),
+        _ => None,
+    });
+    let regex = Arc::new(regex);
 
     let results: Vec<SearchResult> = WalkDir::new(directory)
         .into_iter()
@@ -49,45 +56,7 @@ pub fn process_find(
             ));
             search_pb.inc(1);
 
-            match mode {
-                FindMode::FileName => {
-                    if entry.file_name().to_string_lossy().contains(target) {
-                        Some(SearchResult {
-                            path: entry.path().to_string_lossy().to_string(),
-                            line_number: None,
-                            matched_content: None,
-                        })
-                    } else {
-                        None
-                    }
-                }
-                FindMode::Content => search_file_content(&entry, target),
-                FindMode::Regexp => {
-                    if let Some(ref re) = regex {
-                        search_file_regex(&entry, re)
-                    } else {
-                        None
-                    }
-                }
-                FindMode::Gavriluk => {
-                    let parent = entry.path().parent().unwrap().file_name()?;
-                    if entry
-                        .file_name()
-                        .to_string_lossy()
-                        .match_indices(&*parent.to_string_lossy())
-                        .count()
-                        > 1
-                    {
-                        Some(SearchResult {
-                            path: entry.path().to_string_lossy().into_owned(),
-                            line_number: None,
-                            matched_content: None,
-                        })
-                    } else {
-                        None
-                    }
-                }
-            }
+            process_entry(&entry, mode, pattern, &regex)
         })
         .collect();
 
@@ -97,80 +66,121 @@ pub fn process_find(
         results.len()
     ));
 
-    output_results(&results, output)?;
+    Ok(output_results(&results, output)?)
+}
 
+fn create_progress_bar() -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} [{elapsed_precise}] {msg}")
+            .unwrap(),
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
+}
+
+fn process_entry(
+    entry: &DirEntry,
+    mode: &FindMode,
+    pattern: Option<&str>,
+    regex: &Arc<Option<Regex>>,
+) -> Option<SearchResult> {
+    match mode {
+        FindMode::FileName => process_filename(entry, pattern?),
+        FindMode::Content => process_content(entry, pattern?),
+        FindMode::Regexp => process_regex(entry, regex.as_ref().as_ref()?),
+        FindMode::Gavriluk => process_gavriluk(entry),
+    }
+}
+
+fn process_filename(entry: &DirEntry, pattern: &str) -> Option<SearchResult> {
+    entry
+        .file_name()
+        .to_string_lossy()
+        .contains(pattern)
+        .then(|| SearchResult {
+            path: entry.path().to_owned(),
+            line_number: None,
+            matched_content: None,
+        })
+}
+
+fn process_content(entry: &DirEntry, pattern: &str) -> Option<SearchResult> {
+    if !entry.file_type().is_file() {
+        return None;
+    }
+    let file = File::open(entry.path()).ok()?;
+    let reader = BufReader::new(file);
+    for (line_num, line) in reader.lines().enumerate() {
+        if let Ok(content) = line {
+            if content.contains(pattern) {
+                return Some(SearchResult {
+                    path: entry.path().to_owned(),
+                    line_number: Some(line_num + 1),
+                    matched_content: Some(content),
+                });
+            }
+        }
+    }
+    None
+}
+
+fn process_regex(entry: &DirEntry, regex: &Regex) -> Option<SearchResult> {
+    if !entry.file_type().is_file() {
+        return None;
+    }
+    let file = File::open(entry.path()).ok()?;
+    let reader = BufReader::new(file);
+    for (line_num, line) in reader.lines().enumerate() {
+        if let Ok(content) = line {
+            if regex.is_match(&content) {
+                return Some(SearchResult {
+                    path: entry.path().to_owned(),
+                    line_number: Some(line_num + 1),
+                    matched_content: Some(content),
+                });
+            }
+        }
+    }
+    None
+}
+
+fn process_gavriluk(entry: &DirEntry) -> Option<SearchResult> {
+    let parent = safe_parent_dir(entry.path())?;
+    let parent = parent.file_name()?;
+    (safe_file_name(entry.path())?
+        .match_indices(&*parent.to_string_lossy())
+        .count()
+        > 1)
+    .then(|| SearchResult {
+        path: entry.path().to_owned(),
+        line_number: None,
+        matched_content: None,
+    })
+}
+
+fn output_results(results: &[SearchResult], output: Option<impl AsRef<Path>>) -> io::Result<()> {
+    if let Some(filename) = output {
+        let mut file = File::create(filename.as_ref())?;
+        write_results(&mut file, results)?;
+        println!("Результат записан в файл: {}", filename.as_ref().display());
+    } else {
+        write_results(&mut io::stdout(), results)?;
+    }
     Ok(())
 }
 
-fn search_file_content(entry: &DirEntry, target: &str) -> Option<SearchResult> {
-    if !entry.file_type().is_file() {
-        return None;
-    }
-
-    if let Ok(file) = File::open(entry.path()) {
-        let reader = BufReader::new(file);
-        for (line_num, line) in reader.lines().enumerate() {
-            if let Ok(content) = line {
-                if content.contains(target) {
-                    return Some(SearchResult {
-                        path: entry.path().to_string_lossy().to_string(),
-                        line_number: Some(line_num + 1),
-                        matched_content: Some(content),
-                    });
-                }
+fn write_results(writer: &mut impl Write, results: &[SearchResult]) -> io::Result<()> {
+    for result in results {
+        match (result.line_number, &result.matched_content) {
+            (Some(line_num), Some(content)) => {
+                writeln!(writer, "Файл: {}", result.path.display())?;
+                writeln!(writer, "Строка {}: {}", line_num, content)?;
+                writeln!(writer, "---")?;
             }
+            (_, _) => writeln!(writer, "{}", result.path.display())?,
         }
-    }
-    None
-}
-
-fn search_file_regex(entry: &DirEntry, regex: &Regex) -> Option<SearchResult> {
-    if !entry.file_type().is_file() {
-        return None;
-    }
-
-    if let Ok(file) = File::open(entry.path()) {
-        let reader = BufReader::new(file);
-        for (line_num, line) in reader.lines().enumerate() {
-            if let Ok(content) = line {
-                if regex.is_match(&content) {
-                    return Some(SearchResult {
-                        path: entry.path().to_string_lossy().to_string(),
-                        line_number: Some(line_num + 1),
-                        matched_content: Some(content),
-                    });
-                }
-            }
-        }
-    }
-    None
-}
-
-fn output_results(results: &[SearchResult], output: &str) -> io::Result<()> {
-    if output.is_empty() {
-        for result in results {
-            match (result.line_number, &result.matched_content) {
-                (Some(line_num), Some(content)) => {
-                    println!("Файл: {}", result.path);
-                    println!("Строка {}: {}", line_num, content);
-                    println!("---");
-                }
-                (_, _) => println!("{}", result.path),
-            }
-        }
-    } else {
-        let mut file = File::create(output)?;
-        for result in results {
-            match (result.line_number, &result.matched_content) {
-                (Some(line_num), Some(content)) => {
-                    writeln!(file, "Файл: {}", result.path)?;
-                    writeln!(file, "Строка {}: {}", line_num, content)?;
-                    writeln!(file, "---")?;
-                }
-                (_, _) => writeln!(file, "{}", result.path)?,
-            }
-        }
-        println!("Результат записан в файл: {}", Path::new(output).display());
     }
     Ok(())
 }

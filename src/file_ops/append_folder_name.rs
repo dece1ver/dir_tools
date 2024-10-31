@@ -1,5 +1,9 @@
+use eyre::{eyre, Result};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
     fs,
+    path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -7,12 +11,10 @@ use std::{
     time::Duration,
 };
 
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-
 use super::files_from;
 
-pub fn process_afn(directory: &str) {
+pub fn process_afn(directory: impl AsRef<Path>) -> Result<()> {
+    let directory = directory.as_ref();
     let mp = MultiProgress::new();
     let count_pb = mp.add(ProgressBar::new_spinner());
     count_pb.set_style(
@@ -22,16 +24,15 @@ pub fn process_afn(directory: &str) {
     );
     count_pb.enable_steady_tick(Duration::from_millis(100));
 
-    let files = files_from(directory);
+    let files = files_from(directory)?;
     let len = files.len() as u64;
     count_pb.finish_with_message(format!("завершен, файлов: {}", files.len()));
 
     if files.is_empty() {
-        eprintln!(
+        return Err(eyre!(
             "Нет доступных файлов для обработки в директории: {}",
-            directory
-        );
-        return;
+            directory.display()
+        ));
     }
 
     let current_file_pb = mp.add(ProgressBar::new(0));
@@ -80,4 +81,5 @@ pub fn process_afn(directory: &str) {
     for err in errors.lock().unwrap().iter() {
         eprint!("{err}");
     }
+    Ok(())
 }

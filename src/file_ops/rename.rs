@@ -1,19 +1,25 @@
+use eyre::{eyre, Result};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rayon::prelude::*;
 
 use crate::args::RenameTarget;
 use crate::file_ops::files_from;
 
 use super::{dirs_from, entries_from};
 
-pub fn process_rename(directory: &str, target_type: &RenameTarget, find: &str, replace: &str) {
+pub fn process_rename(
+    directory: impl AsRef<Path>,
+    target_type: &RenameTarget,
+    find: &str,
+    replace: &str,
+) -> Result<()> {
     let mp = MultiProgress::new();
-
+    let directory = directory.as_ref();
     let objects_title = match target_type {
         RenameTarget::Dirs => "директорий",
         RenameTarget::Files => "файлов",
@@ -30,9 +36,9 @@ pub fn process_rename(directory: &str, target_type: &RenameTarget, find: &str, r
     count_pb.enable_steady_tick(Duration::from_millis(100));
 
     let entries = match target_type {
-        RenameTarget::Dirs => dirs_from(directory),
-        RenameTarget::Files => files_from(directory),
-        RenameTarget::Both => entries_from(directory),
+        RenameTarget::Dirs => dirs_from(directory)?,
+        RenameTarget::Files => files_from(directory)?,
+        RenameTarget::Both => entries_from(directory)?,
     };
 
     count_pb.finish_with_message(format!(
@@ -42,11 +48,10 @@ pub fn process_rename(directory: &str, target_type: &RenameTarget, find: &str, r
     ));
 
     if entries.is_empty() {
-        eprintln!(
-            "Нет доступных {} для обработки в директории: {}",
-            objects_title, directory
-        );
-        return;
+        return Err(eyre!(
+            "Нет доступных файлов для обработки в директории: {}",
+            directory.display()
+        ));
     }
 
     let len = entries.len() as u64;
@@ -120,4 +125,5 @@ pub fn process_rename(directory: &str, target_type: &RenameTarget, find: &str, r
     for error in errors.iter() {
         eprintln!("{}", error);
     }
+    Ok(())
 }
