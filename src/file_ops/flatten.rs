@@ -27,7 +27,7 @@ pub fn process_flatten(
         }
     };
 
-    fs::create_dir_all(&output_dir)?;
+    fs::create_dir_all(output_dir)?;
 
     let mp = MultiProgress::new();
     let count_pb = mp.add(ProgressBar::new_spinner());

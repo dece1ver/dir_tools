@@ -13,7 +13,7 @@ use std::{
 
 use super::files_from;
 
-pub fn process_afn(directory: impl AsRef<Path>) -> Result<()> {
+pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
     let directory = directory.as_ref();
     let mp = MultiProgress::new();
     let count_pb = mp.add(ProgressBar::new_spinner());
@@ -55,8 +55,9 @@ pub fn process_afn(directory: impl AsRef<Path>) -> Result<()> {
         if let Some(parent) = entry.path().parent() {
             let old_name = entry.file_name().to_string_lossy();
             let new_name = format!(
-                "{} {}",
+                "{}{}{}",
                 parent.file_name().unwrap().to_string_lossy(),
+                delimiter,
                 entry.file_name().to_string_lossy()
             );
             let dest_path = entry

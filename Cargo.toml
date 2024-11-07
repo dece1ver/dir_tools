@@ -9,7 +9,9 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.13", features = ["derive"] }
+crossterm = "0.28.1"
 eyre = "0.6.12"
+fs2 = "0.4.3"
 indicatif = "0.17.8"
 rayon = "1.10.0"
 regex = "1.11.1"

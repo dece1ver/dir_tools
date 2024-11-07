@@ -1,6 +1,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use lock::process_lock;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::args::Operation;
@@ -15,6 +16,7 @@ pub mod append_folder_name;
 pub mod expose;
 pub mod find;
 pub mod flatten;
+pub mod lock;
 pub mod rename;
 
 pub fn process_directory(operation: &Operation) -> Result<()> {
@@ -31,13 +33,17 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
             find,
             replace,
         } => process_rename(directory, target_type, find, replace),
-        Operation::AFN { directory } => process_afn(directory),
+        Operation::AddParentDir {
+            directory,
+            delimiter,
+        } => process_afn(directory, delimiter),
         Operation::Find {
             directory,
             mode,
             output,
             pattern,
         } => process_find(directory, mode, pattern.as_deref(), output.as_deref()),
+        Operation::Lock { path, timer, mode } => process_lock(path, timer, mode),
     }
 }
 
