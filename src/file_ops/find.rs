@@ -11,9 +11,12 @@ use std::{
 };
 use walkdir::{DirEntry, WalkDir};
 
-use crate::args::FindMode;
-
 use super::{safe_file_name, safe_parent_dir};
+use crate::args::FindMode;
+use crossterm::{
+    queue,
+    style::{self, Attribute, Stylize},
+};
 
 #[derive(Debug)]
 pub struct SearchResult {
@@ -174,12 +177,26 @@ fn output_results(results: &[SearchResult], output: Option<impl AsRef<Path>>) ->
 fn write_results(writer: &mut impl Write, results: &[SearchResult]) -> io::Result<()> {
     for result in results {
         match (result.line_number, &result.matched_content) {
-            (Some(line_num), Some(content)) => {
-                writeln!(writer, "Файл: {}", result.path.display())?;
-                writeln!(writer, "Строка {}: {}", line_num, content)?;
+            (Some(linenum), Some(content)) => {
+                // OSC 8 последовательность для создания гиперссылки
+                write!(
+                    writer,
+                    "Файл: \x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
+                    result.path.to_string_lossy(),
+                    result.path.display()
+                )?;
+                writeln!(writer)?;
+                writeln!(writer, "Строка {}: {}", linenum, content)?;
                 writeln!(writer, "---")?;
             }
-            (_, _) => writeln!(writer, "{}", result.path.display())?,
+            (_, _) => {
+                writeln!(
+                    writer,
+                    "\x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
+                    result.path.to_string_lossy(),
+                    result.path.display()
+                )?;
+            }
         }
     }
     Ok(())
