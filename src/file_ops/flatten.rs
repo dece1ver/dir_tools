@@ -3,12 +3,14 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
 use rayon::prelude::*;
 
 use crate::file_ops::files_from;
+use crate::TICK_DURATION;
+
+use super::{create_progressbar, CustomStyle};
 
 pub fn process_flatten(
     directory: impl AsRef<Path>,
@@ -30,17 +32,16 @@ pub fn process_flatten(
     fs::create_dir_all(output_dir)?;
 
     let mp = MultiProgress::new();
-    let count_pb = mp.add(ProgressBar::new_spinner());
-    count_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} Подсчет файлов...")
-            .unwrap(),
-    );
-    count_pb.enable_steady_tick(Duration::from_millis(100));
+    let count_pb = mp.add(create_progressbar(
+        "{spinner:.green} [{elapsed_precise}] Подсчет файлов...",
+        CustomStyle::Spinner,
+        0,
+    ));
+    count_pb.enable_steady_tick(TICK_DURATION);
 
     let files = files_from(directory)?;
-
-    count_pb.finish_with_message(format!("завершен, файлов: {}", files.len()));
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    count_pb.finish_and_clear();
 
     if files.is_empty() {
         return Err(eyre!(
@@ -49,20 +50,17 @@ pub fn process_flatten(
         ));
     }
 
-    let current_file_pb = mp.add(ProgressBar::new(0));
-    current_file_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
-    );
+    let current_file_pb = mp.add(create_progressbar(
+        "{spinner:.green} {msg}",
+        CustomStyle::Spinner,
+        0,
+    ));
 
-    let pb = mp.add(ProgressBar::new(files.len() as u64));
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.green}] {pos}/{len} ({eta})")
-            .unwrap()
-            .progress_chars("=> "),
-    );
+    let pb = mp.add(create_progressbar(
+        "[{elapsed_precise}] {bar:40.green} {pos}/{len} ({eta})",
+        CustomStyle::Bar,
+        files.len(),
+    ));
 
     let existing_files = Arc::new(Mutex::new(HashSet::with_capacity(files.len())));
     let output_dir = Arc::new(output_dir);
@@ -106,7 +104,8 @@ pub fn process_flatten(
             };
 
             if let Err(e) = result {
-                eprintln!(
+                let mut errors = errors.lock().unwrap();
+                errors.push(format!(
                     "Ошибка {} файла {}: {}",
                     if move_files {
                         "перемещения"
@@ -115,7 +114,7 @@ pub fn process_flatten(
                     },
                     entry.path().display(),
                     e
-                );
+                ));
             } else {
                 local_existing.insert(dest_path.to_str().unwrap().to_string());
             }
@@ -135,5 +134,12 @@ pub fn process_flatten(
     } else {
         println!("Все файлы уплощены в {}", output_dir);
     }
+    let errors = errors.lock().unwrap();
+    if !errors.is_empty() {
+        for err in errors.iter() {
+            eprintln!("{err}")
+        }
+    }
+
     Ok(())
 }

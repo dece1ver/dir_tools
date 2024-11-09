@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use clap::Parser;
 
 use args::Args;
@@ -7,8 +9,15 @@ mod args;
 mod file_ops;
 mod platform;
 
+const ANSI_PROGRESS_CHARS: &str = "█▇▆▅▄▃▂▁";
+const PROGRESS_CHARS: &str = "=> ";
+const TICK_DURATION: Duration = Duration::from_millis(100);
+const TICK_CHARS: &str = r#"-\|/"#;
+
 fn main() -> Result<()> {
     let args = Args::parse();
-    process_directory(&args.operation)?;
+    if let Err(e) = process_directory(&args.operation) {
+        eprintln!("{}", e);
+    }
     Ok(())
 }

@@ -1,5 +1,5 @@
 use eyre::Result;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
 use rayon::prelude::*;
 use regex::Regex;
 use std::{
@@ -7,16 +7,12 @@ use std::{
     io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 use walkdir::{DirEntry, WalkDir};
 
 use super::{safe_file_name, safe_parent_dir};
 use crate::args::FindMode;
-use crossterm::{
-    queue,
-    style::{self, Attribute, Stylize},
-};
+use crate::file_ops::{create_progressbar, CustomStyle};
 
 #[derive(Debug)]
 pub struct SearchResult {
@@ -37,9 +33,21 @@ pub fn process_find(
     if let Some(pattern) = pattern {
         println!("Паттерн: {}", pattern);
     }
+    println!(
+        "Вывод в {}",
+        if output.is_none() {
+            "консоль."
+        } else {
+            "файл."
+        }
+    );
 
     let mp = MultiProgress::new();
-    let search_pb = mp.add(create_progress_bar());
+    let search_pb = mp.add(create_progressbar(
+        "{spinner:.green} [{elapsed_precise}] {msg}",
+        CustomStyle::Spinner,
+        0,
+    ));
 
     let regex = pattern.and_then(|p| match mode {
         FindMode::Regexp => Some(Regex::new(p).expect("Некорректное регулярное выражение")),
@@ -70,17 +78,6 @@ pub fn process_find(
     ));
 
     Ok(output_results(&results, output)?)
-}
-
-fn create_progress_bar() -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap(),
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
-    pb
 }
 
 fn process_entry(
@@ -166,36 +163,49 @@ fn process_gavriluk(entry: &DirEntry) -> Option<SearchResult> {
 fn output_results(results: &[SearchResult], output: Option<impl AsRef<Path>>) -> io::Result<()> {
     if let Some(filename) = output {
         let mut file = File::create(filename.as_ref())?;
-        write_results(&mut file, results)?;
+        write_results(&mut file, results, false)?;
         println!("Результат записан в файл: {}", filename.as_ref().display());
     } else {
-        write_results(&mut io::stdout(), results)?;
+        write_results(&mut io::stdout(), results, true)?;
     }
     Ok(())
 }
 
-fn write_results(writer: &mut impl Write, results: &[SearchResult]) -> io::Result<()> {
+fn write_results(
+    writer: &mut impl Write,
+    results: &[SearchResult],
+    use_hyperlinks: bool,
+) -> io::Result<()> {
     for result in results {
         match (result.line_number, &result.matched_content) {
             (Some(linenum), Some(content)) => {
-                // OSC 8 последовательность для создания гиперссылки
-                write!(
-                    writer,
-                    "Файл: \x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
-                    result.path.to_string_lossy(),
-                    result.path.display()
-                )?;
+                if use_hyperlinks {
+                    // OSC 8 последовательность только для вывода в консоль
+                    write!(
+                        writer,
+                        "Файл: \x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
+                        result.path.to_string_lossy(),
+                        result.path.display()
+                    )?;
+                } else {
+                    // Простой вывод для файла
+                    write!(writer, "Файл: {}", result.path.display())?;
+                }
                 writeln!(writer)?;
                 writeln!(writer, "Строка {}: {}", linenum, content)?;
                 writeln!(writer, "---")?;
             }
             (_, _) => {
-                writeln!(
-                    writer,
-                    "\x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
-                    result.path.to_string_lossy(),
-                    result.path.display()
-                )?;
+                if use_hyperlinks {
+                    writeln!(
+                        writer,
+                        "\x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
+                        result.path.parent().unwrap().to_string_lossy(),
+                        result.path.display()
+                    )?;
+                } else {
+                    writeln!(writer, "{}", result.path.display())?;
+                }
             }
         }
     }

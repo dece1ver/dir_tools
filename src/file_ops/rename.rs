@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::args::RenameTarget;
 use crate::file_ops::files_from;
+use crate::PROGRESS_CHARS;
 
 use super::{dirs_from, entries_from};
 
@@ -67,7 +68,7 @@ pub fn process_rename(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] [{bar:40.green}] {pos}/{len} ({eta})")
             .unwrap()
-            .progress_chars("=> "),
+            .progress_chars(PROGRESS_CHARS),
     );
 
     let processed = Arc::new(AtomicUsize::new(0));

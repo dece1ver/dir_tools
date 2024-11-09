@@ -1,10 +1,14 @@
-use std::io;
+use std::io::{self, stderr};
 use std::path::{Path, PathBuf};
 
+use crossterm::ansi_support::supports_ansi;
+use crossterm::tty::IsTty;
+use indicatif::{ProgressBar, ProgressStyle};
 use lock::process_lock;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::args::Operation;
+use crate::{ANSI_PROGRESS_CHARS, PROGRESS_CHARS, TICK_CHARS, TICK_DURATION};
 use append_folder_name::process_afn;
 use expose::process_expose;
 use eyre::Result;
@@ -89,4 +93,89 @@ pub fn safe_file_name(path: impl AsRef<Path>) -> Option<String> {
     path.as_ref()
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
+}
+
+trait IntoProgressLen {
+    fn into_progress_len(self) -> u64;
+}
+
+impl IntoProgressLen for u64 {
+    fn into_progress_len(self) -> u64 {
+        self
+    }
+}
+
+impl IntoProgressLen for i32 {
+    fn into_progress_len(self) -> u64 {
+        if self >= 0 {
+            self as u64
+        } else {
+            0u64
+        }
+    }
+}
+
+impl IntoProgressLen for usize {
+    fn into_progress_len(self) -> u64 {
+        self as u64
+    }
+}
+
+fn create_progressbar<I>(template: &str, style: CustomStyle, len: I) -> ProgressBar
+where
+    I: IntoProgressLen,
+{
+    let pb = ProgressBar::new(len.into_progress_len());
+
+    #[cfg(windows)]
+    let is_modern_windows_terminal =
+        std::env::var("WT_SESSION").is_ok() || std::env::var("TERM_PROGRAM").is_ok();
+
+    #[cfg(not(windows))]
+    let is_modern_windows_terminal = true;
+
+    if stderr().is_tty() && supports_ansi() && is_modern_windows_terminal {
+        match style {
+            CustomStyle::Spinner => {
+                pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
+            }
+            CustomStyle::Bar => {
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template(template)
+                        .unwrap()
+                        .progress_chars(ANSI_PROGRESS_CHARS),
+                );
+            }
+        }
+    } else {
+        match style {
+            CustomStyle::Spinner => {
+                pb.set_style(
+                    ProgressStyle::default_spinner()
+                        .template(template)
+                        .unwrap()
+                        .tick_chars(TICK_CHARS)
+                        .progress_chars(PROGRESS_CHARS),
+                );
+            }
+            CustomStyle::Bar => {
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template(template)
+                        .unwrap()
+                        .tick_chars(TICK_CHARS)
+                        .progress_chars(PROGRESS_CHARS),
+                );
+            }
+        }
+    }
+
+    pb.enable_steady_tick(TICK_DURATION);
+    pb
+}
+
+enum CustomStyle {
+    Spinner,
+    Bar,
 }

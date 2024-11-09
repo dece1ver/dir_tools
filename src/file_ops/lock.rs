@@ -2,10 +2,12 @@ use crate::args::LockMode;
 use crossterm::event::{self, Event, KeyCode};
 use eyre::Result;
 use fs2::FileExt;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
+
+use super::{create_progressbar, CustomStyle};
 
 fn format_duration(seconds: u64) -> String {
     let minutes = seconds / 60;
@@ -17,21 +19,12 @@ pub fn process_lock(path: impl AsRef<Path>, timer: &Option<u64>, mode: &LockMode
     let path = path.as_ref();
     let mp = MultiProgress::new();
 
-    let status_pb = mp.add(ProgressBar::new_spinner());
-    status_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
-    );
+    let status_pb = mp.add(create_progressbar(
+        "{spinner:.green} [{elapsed_precise}] {msg}",
+        CustomStyle::Spinner,
+        0,
+    ));
     status_pb.enable_steady_tick(Duration::from_millis(100));
-
-    let progress_pb = mp.add(ProgressBar::new(100));
-    progress_pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{bar:40.green}] {pos:>2}% | {msg}")
-            .unwrap()
-            .progress_chars("=> "),
-    );
 
     let file = match mode {
         LockMode::Read => fs::OpenOptions::new().read(true).open(path),
@@ -42,6 +35,12 @@ pub fn process_lock(path: impl AsRef<Path>, timer: &Option<u64>, mode: &LockMode
     file.try_lock_exclusive()?;
     match timer {
         Some(t) => {
+            let progress_pb = mp.add(create_progressbar(
+                "{bar:40.green} {pos:>2}% | {msg}",
+                CustomStyle::Bar,
+                100,
+            ));
+
             let start = Instant::now();
             let duration = Duration::from_secs(*t);
 
@@ -63,14 +62,12 @@ pub fn process_lock(path: impl AsRef<Path>, timer: &Option<u64>, mode: &LockMode
                 let remaining = duration.as_secs() - elapsed.as_secs();
                 let percent = ((elapsed.as_secs_f64() / duration.as_secs_f64()) * 100.0) as u64;
 
-                // Обновляем статус
                 status_pb.set_message(format!(
                     "Блокировка файла: {} | Осталось: {}",
                     path.display(),
                     format_duration(remaining)
                 ));
 
-                // Обновляем прогресс-бар
                 progress_pb.set_position(percent);
                 progress_pb.set_message(format!(
                     "Прошло {} из {}",

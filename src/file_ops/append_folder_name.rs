@@ -1,5 +1,5 @@
 use eyre::{eyre, Result};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
     fs,
@@ -8,25 +8,25 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 
-use super::files_from;
+use crate::TICK_DURATION;
+
+use super::{create_progressbar, files_from, CustomStyle};
 
 pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
     let directory = directory.as_ref();
     let mp = MultiProgress::new();
-    let count_pb = mp.add(ProgressBar::new_spinner());
-    count_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} Подсчет файлов...")
-            .unwrap(),
-    );
-    count_pb.enable_steady_tick(Duration::from_millis(100));
-
+    let count_pb = mp.add(create_progressbar(
+        "{spinner:.green} [{elapsed_precise}] {msg}",
+        CustomStyle::Spinner,
+        0,
+    ));
+    count_pb.enable_steady_tick(TICK_DURATION);
+    count_pb.set_message("Подсчет файлов...");
     let files = files_from(directory)?;
     let len = files.len() as u64;
-    count_pb.finish_with_message(format!("завершен, файлов: {}", files.len()));
+    count_pb.finish_and_clear();
 
     if files.is_empty() {
         return Err(eyre!(
@@ -35,19 +35,17 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
         ));
     }
 
-    let current_file_pb = mp.add(ProgressBar::new(0));
-    current_file_pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
-    );
-    let pb = mp.add(ProgressBar::new(len));
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.green}] {pos}/{len} ({eta})")
-            .unwrap()
-            .progress_chars("=> "),
-    );
+    let current_file_pb = mp.add(create_progressbar(
+        "{spinner:.green} {msg}",
+        CustomStyle::Spinner,
+        0,
+    ));
+    current_file_pb.set_length(0);
+    let pb = mp.add(create_progressbar(
+        "[{elapsed_precise}] {bar:40.green} {pos}/{len} ({eta})",
+        CustomStyle::Bar,
+        len,
+    ));
     let processed = Arc::new(AtomicUsize::new(0));
     let errors = Arc::new(Mutex::new(Vec::new()));
 
