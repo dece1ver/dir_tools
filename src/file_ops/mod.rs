@@ -5,6 +5,7 @@ use crossterm::ansi_support::supports_ansi;
 use crossterm::tty::IsTty;
 use indicatif::{ProgressBar, ProgressStyle};
 use lock::process_lock;
+use tree::process_tree;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::args::Operation;
@@ -22,6 +23,7 @@ pub mod find;
 pub mod flatten;
 pub mod lock;
 pub mod rename;
+pub mod tree;
 
 pub fn process_directory(operation: &Operation) -> Result<()> {
     match operation {
@@ -48,6 +50,13 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
             pattern,
         } => process_find(directory, mode, pattern.as_deref(), output.as_deref()),
         Operation::Lock { path, timer, mode } => process_lock(path, timer, mode),
+        Operation::Tree {
+            directory,
+            show_content,
+            max_depth,
+            full_content,
+            show_hidden,
+        } => process_tree(directory, *show_content, *max_depth, *full_content, *show_hidden),
     }
 }
 

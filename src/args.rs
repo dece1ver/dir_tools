@@ -76,6 +76,23 @@ pub enum Operation {
         #[arg(default_value = "read-write")]
         mode: LockMode,
     },
+    /// Показать дерево директории с содержимым файлов
+    Tree {
+        /// Директория для отображения
+        directory: PathBuf,
+        /// Показывать содержимое файлов
+        #[arg(short = 'c', long)]
+        show_content: bool,
+        /// Максимальная глубина сканирования (0 - без ограничений)
+        #[arg(short = 'd', long, default_value = "0")]
+        max_depth: usize,
+        /// Показывать полное содержимое файлов (иначе первые 5 строк)
+        #[arg(short = 'f', long)]
+        full_content: bool,
+        /// Показывать скрытые файлы
+        #[arg(short = 'a', long)]
+        show_hidden: bool,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]
