@@ -6,6 +6,8 @@ repository = "https://github.com/dece1ver/dir_tools"
 readme = "README.md"
 keywords = ["directories", "tools", "filesystem-management"]
 categories = ["command-line-utilities", "filesystem"]
+description = "Набор инструментов для работы с директориями"
+license = "GPL-3.0"
 
 [[bin]]
 name = "dirt"
