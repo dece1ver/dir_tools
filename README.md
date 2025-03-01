@@ -6,10 +6,13 @@
 
 ```bash
 cargo install dir-tools
+# или
+cargo install --git https://github.com/dece1ver/dir_tools.git
 # или скомпилировать из исходников
-git clone https://github.com/username/dir-tools
-cd dir-tools
+git clone https://github.com/dece1ver/dir_tools.git
+cd dir_tools
 cargo build --release
+# или скачать в релизах
 ```
 
 ## Использование
