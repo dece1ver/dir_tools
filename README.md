@@ -5,7 +5,7 @@
 ## Установка
 
 ```bash
-cargo install dir-tools
+cargo install dir_tools
 # или
 cargo install --git https://github.com/dece1ver/dir_tools.git
 # или скомпилировать из исходников
