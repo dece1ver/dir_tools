@@ -2,6 +2,10 @@
 name = "dir_tools"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/dece1ver/dir_tools"
+readme = "README.md"
+keywords = ["directories", "tools", "filesystem-management"]
+categories = ["command-line-utilities", "filesystem"]
 
 [[bin]]
 name = "dirt"
