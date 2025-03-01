@@ -14,22 +14,22 @@ use super::{create_progressbar, CustomStyle};
 
 pub fn process_flatten(
     directory: impl AsRef<Path>,
-    output: &Option<String>,
+    output: Option<&PathBuf>,
     move_files: bool,
 ) -> Result<()> {
     let directory = directory.as_ref();
 
     let output_dir = match output {
-        Some(path) => path,
+        Some(path) => path.clone(),
         None => {
             let mut output_path = std::env::current_exe()?;
             output_path.pop();
             output_path.push("flattened_files");
-            &output_path.to_str().unwrap().to_string()
+            output_path
         }
     };
 
-    fs::create_dir_all(output_dir)?;
+    fs::create_dir_all(&output_dir)?;
 
     let mp = MultiProgress::new();
     let count_pb = mp.add(create_progressbar(
@@ -77,11 +77,11 @@ pub fn process_flatten(
             let mut dest_path = PathBuf::from(&*output_dir).join(&file_name);
             let mut counter = 1;
 
-            while local_existing.contains(dest_path.to_str().unwrap())
+            while local_existing.contains(&dest_path.to_string_lossy().to_string())
                 || existing_files
                     .lock()
                     .unwrap()
-                    .contains(dest_path.to_str().unwrap())
+                    .contains(&dest_path.to_string_lossy().to_string())
             {
                 let new_name = if let Some(ext) = dest_path.extension() {
                     format!(
@@ -116,7 +116,7 @@ pub fn process_flatten(
                     e
                 ));
             } else {
-                local_existing.insert(dest_path.to_str().unwrap().to_string());
+                local_existing.insert(dest_path.to_string_lossy().to_string());
             }
 
             pb.inc(1);
@@ -132,7 +132,7 @@ pub fn process_flatten(
     if existing_files.lock().unwrap().is_empty() {
         eprintln!("Ничего не сделано.");
     } else {
-        println!("Все файлы уплощены в {}", output_dir);
+        println!("Все файлы уплощены в {}", output_dir.display());
     }
     let errors = errors.lock().unwrap();
     if !errors.is_empty() {

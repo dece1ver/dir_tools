@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, stderr};
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,7 @@ use crate::args::Operation;
 use crate::{ANSI_PROGRESS_CHARS, PROGRESS_CHARS, TICK_CHARS, TICK_DURATION};
 use append_folder_name::process_afn;
 use expose::process_expose;
-use eyre::Result;
+use eyre::{Context, Result};
 use find::process_find;
 use flatten::process_flatten;
 use rename::process_rename;
@@ -25,38 +26,83 @@ pub mod lock;
 pub mod rename;
 pub mod tree;
 
+// Функция для преобразования относительных путей в абсолютные
+fn resolve_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        let current_dir = env::current_dir().wrap_err("Не удалось получить текущую директорию")?;
+        Ok(current_dir.join(path))
+    }
+}
+
 pub fn process_directory(operation: &Operation) -> Result<()> {
     match operation {
-        Operation::Expose { directory, force } => process_expose(directory, *force),
+        Operation::Expose { directory, force } => {
+            let abs_dir = resolve_path(directory)?;
+            process_expose(&abs_dir, *force)
+        }
         Operation::Flatten {
             directory,
             output,
             move_files,
-        } => process_flatten(directory, output, *move_files),
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            let abs_output = output
+                .as_ref()
+                .map(|o| resolve_path(Path::new(o)).unwrap_or_else(|_| PathBuf::from(o)));
+            process_flatten(&abs_dir, abs_output.as_ref(), *move_files)
+        }
         Operation::Rename {
             directory,
             target_type,
             find,
             replace,
-        } => process_rename(directory, target_type, find, replace),
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            process_rename(&abs_dir, target_type, find, replace)
+        }
         Operation::AddParentDir {
             directory,
             delimiter,
-        } => process_afn(directory, delimiter),
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            process_afn(&abs_dir, delimiter)
+        }
         Operation::Find {
             directory,
             mode,
-            output,
             pattern,
-        } => process_find(directory, mode, pattern.as_deref(), output.as_deref()),
-        Operation::Lock { path, timer, mode } => process_lock(path, timer, mode),
+            output,
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            let abs_output = if let Some(out) = output {
+                Some(resolve_path(out)?)
+            } else {
+                None
+            };
+            process_find(&abs_dir, mode, pattern.as_deref(), abs_output.as_deref())
+        }
+        Operation::Lock { path, timer, mode } => {
+            let abs_path = resolve_path(path)?;
+            process_lock(&abs_path, timer, mode)
+        }
         Operation::Tree {
             directory,
             show_content,
             max_depth,
             full_content,
             show_hidden,
-        } => process_tree(directory, *show_content, *max_depth, *full_content, *show_hidden),
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            process_tree(
+                &abs_dir,
+                *show_content,
+                *max_depth,
+                *full_content,
+                *show_hidden,
+            )
+        }
     }
 }
 
