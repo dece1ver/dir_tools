@@ -62,7 +62,7 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
                 .path()
                 .to_string_lossy()
                 .replace(&old_name.clone().into_owned(), &new_name);
-            current_file_pb.set_message(format!("Обработка: {} => {}", &old_name, &new_name));
+            current_file_pb.set_message(format!("Обработка: {old_name} => {new_name}"));
             if let Err(e) = fs::rename(entry.path(), &dest_path) {
                 errors.lock().unwrap().push(format!(
                     "Ошибка переименования \"{}{}\": {}",

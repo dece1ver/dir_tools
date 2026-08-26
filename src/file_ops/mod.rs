@@ -133,7 +133,7 @@ fn collect_entries(
         .filter_map(|e| match e {
             Ok(entry) if predicate(&entry) => Some(Ok(entry)),
             Ok(_) => None,
-            Err(e) => Some(Err(io::Error::new(io::ErrorKind::Other, e))),
+            Err(e) => Some(Err(io::Error::other(e))),
         })
         .collect()
 }

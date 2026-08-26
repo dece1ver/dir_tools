@@ -85,7 +85,7 @@ pub fn process_rename(
         .filter(|(_, name)| name.contains(find))
         .for_each(|(entry, old_name)| {
             let new_name = old_name.replace(find, replace);
-            current_file_pb.set_message(format!("Обработка: {} => {}", &old_name, &new_name));
+            current_file_pb.set_message(format!("Обработка: {old_name} => {new_name}"));
 
             let dest_path = entry
                 .path()

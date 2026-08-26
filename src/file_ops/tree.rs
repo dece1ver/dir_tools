@@ -44,34 +44,37 @@ pub fn process_tree(
 
     pb.finish_and_clear();
 
-    print_tree(
-        directory,
-        "",
-        true,
+    let config = TreeConfig {
+        entries: &entries,
         show_content,
-        &entries,
-        1,
-        max_depth,
         full_content,
-    )?;
+        max_depth,
+    };
+
+    print_tree(directory, "", true, 1, &config)?;
     Ok(())
+}
+
+struct TreeConfig<'a> {
+    entries: &'a [walkdir::DirEntry],
+    show_content: bool,
+    full_content: bool,
+    max_depth: usize,
 }
 
 fn print_tree(
     path: &Path,
     prefix: &str,
     is_last: bool,
-    show_content: bool,
-    all_entries: &[walkdir::DirEntry],
     current_depth: usize,
-    max_depth: usize,
-    full_content: bool,
+    config: &TreeConfig<'_>,
 ) -> Result<()> {
-    if max_depth > 0 && current_depth > max_depth {
+    if config.max_depth > 0 && current_depth > config.max_depth {
         return Ok(());
     }
 
-    let entries: Vec<_> = all_entries
+    let entries: Vec<_> = config
+        .entries
         .iter()
         .filter(|e| e.path().parent() == Some(path))
         .collect();
@@ -96,10 +99,10 @@ fn print_tree(
 
         if entry.file_type().is_file() {
             println!();
-            if show_content {
+            if config.show_content {
                 if let Ok(content) = std::fs::read_to_string(entry_path) {
                     let lines: Vec<_> = content.lines().collect();
-                    let lines_to_show = if full_content {
+                    let lines_to_show = if config.full_content {
                         lines.as_slice()
                     } else {
                         &lines[..lines.len().min(5)]
@@ -109,7 +112,7 @@ fn print_tree(
                         println!("{}{}│ {}", prefix, next_prefix, line);
                     }
 
-                    if !full_content && lines.len() > 5 {
+                    if !config.full_content && lines.len() > 5 {
                         println!("{}{}│ ...", prefix, next_prefix);
                     }
                 }
@@ -120,11 +123,8 @@ fn print_tree(
                 entry_path,
                 &format!("{}{}", prefix, if is_last { next_prefix } else { "│   " }),
                 is_last_entry,
-                show_content,
-                all_entries,
                 current_depth + 1,
-                max_depth,
-                full_content,
+                config,
             )?;
         }
     }
