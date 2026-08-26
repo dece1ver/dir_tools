@@ -1,18 +1,18 @@
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use indicatif::MultiProgress;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
     fs,
     path::Path,
     sync::{
+        Arc, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
     },
 };
 
 use crate::TICK_DURATION;
 
-use super::{create_progressbar, files_from, CustomStyle};
+use super::{CustomStyle, create_progressbar, files_from};
 
 pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
     let directory = directory.as_ref();
@@ -50,11 +50,13 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
     let errors = Arc::new(Mutex::new(Vec::new()));
 
     files.par_iter().for_each(|entry| {
-        if let Some(parent) = entry.path().parent() {
+        if let Some(parent) = entry.path().parent()
+            && let Some(parent_name) = parent.file_name()
+        {
             let old_name = entry.file_name().to_string_lossy();
             let new_name = format!(
                 "{}{}{}",
-                parent.file_name().unwrap().to_string_lossy(),
+                parent_name.to_string_lossy(),
                 delimiter,
                 entry.file_name().to_string_lossy()
             );
@@ -64,12 +66,15 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
                 .replace(&old_name.clone().into_owned(), &new_name);
             current_file_pb.set_message(format!("Обработка: {old_name} => {new_name}"));
             if let Err(e) = fs::rename(entry.path(), &dest_path) {
-                errors.lock().unwrap().push(format!(
-                    "Ошибка переименования \"{}{}\": {}",
-                    entry.path().display(),
-                    if entry.path().is_dir() { "\\" } else { "" },
-                    e
-                ));
+                errors
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(format!(
+                        "Ошибка переименования \"{}{}\": {}",
+                        entry.path().display(),
+                        if entry.path().is_dir() { "\\" } else { "" },
+                        e
+                    ));
             } else {
                 processed.fetch_add(1, Ordering::Relaxed);
             }
@@ -77,7 +82,7 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
         pb.inc(1);
     });
     pb.finish();
-    for err in errors.lock().unwrap().iter() {
+    for err in errors.lock().unwrap_or_else(PoisonError::into_inner).iter() {
         eprint!("{err}");
     }
     Ok(())

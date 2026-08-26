@@ -4,12 +4,12 @@ use rayon::prelude::*;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::file_ops::{create_progressbar, files_from, CustomStyle};
+use crate::TICK_DURATION;
+use crate::file_ops::{CustomStyle, create_progressbar, files_from};
 #[cfg(unix)]
 use crate::platform::unix::{print_unix_warning, rename_hidden_files};
 #[cfg(windows)]
 use crate::platform::windows::remove_hidden_attribute;
-use crate::TICK_DURATION;
 
 pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
     let directory = directory.as_ref();
@@ -25,14 +25,14 @@ pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
             current_file_pb.set_style(
                 ProgressStyle::default_spinner()
                     .template("{spinner:.green} {msg}")
-                    .expect("Failed to create spinner style"),
+                    .unwrap_or_else(|_| ProgressStyle::default_spinner()),
             );
 
             let pb = mp.add(ProgressBar::new(file_count));
             pb.set_style(
                 ProgressStyle::default_bar()
                     .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
-                    .expect("Failed to create progress bar style")
+                    .unwrap_or_else(|_| ProgressStyle::default_bar())
                     .progress_chars(PROGRESS_CHARS),
             );
 
@@ -52,9 +52,7 @@ pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
             pb.finish_with_message("Операция завершена");
             current_file_pb.finish_and_clear();
 
-            handle_pb_state
-                .join()
-                .expect("Progress bar thread panicked");
+            let _ = handle_pb_state.join();
             println!("Раскрыто файлов: {file_count}");
         } else {
             print_unix_warning(directory);

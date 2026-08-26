@@ -1,8 +1,8 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
-use winapi::um::fileapi::SetFileAttributesW;
 use winapi::um::fileapi::INVALID_FILE_ATTRIBUTES;
+use winapi::um::fileapi::SetFileAttributesW;
 use winapi::um::winnt::FILE_ATTRIBUTE_HIDDEN;
 
 pub fn remove_hidden_attribute(path: &str) -> bool {

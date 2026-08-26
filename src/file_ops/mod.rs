@@ -52,12 +52,7 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
             let abs_output = output
                 .as_ref()
                 .map(|o| resolve_path(Path::new(o)).unwrap_or_else(|_| PathBuf::from(o)));
-            process_flatten(
-                &abs_dir,
-                abs_output.as_ref(),
-                *move_files,
-                *replace_newest,
-            )
+            process_flatten(&abs_dir, abs_output.as_ref(), *move_files, *replace_newest)
         }
         Operation::Rename {
             directory,
@@ -168,11 +163,7 @@ impl IntoProgressLen for u64 {
 
 impl IntoProgressLen for i32 {
     fn into_progress_len(self) -> u64 {
-        if self >= 0 {
-            self as u64
-        } else {
-            0u64
-        }
+        if self >= 0 { self as u64 } else { 0u64 }
     }
 }
 
@@ -198,36 +189,31 @@ where
     if stderr().is_tty() && supports_ansi() && is_modern_windows_terminal {
         match style {
             CustomStyle::Spinner => {
-                pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
+                let style = ProgressStyle::default_spinner()
+                    .template(template)
+                    .unwrap_or_else(|_| ProgressStyle::default_spinner());
+                pb.set_style(style);
             }
             CustomStyle::Bar => {
-                pb.set_style(
-                    ProgressStyle::default_bar()
-                        .template(template)
-                        .unwrap()
-                        .progress_chars(ANSI_PROGRESS_CHARS),
-                );
+                let style = ProgressStyle::default_bar()
+                    .template(template)
+                    .unwrap_or_else(|_| ProgressStyle::default_bar());
+                pb.set_style(style.progress_chars(ANSI_PROGRESS_CHARS));
             }
         }
     } else {
         match style {
             CustomStyle::Spinner => {
-                pb.set_style(
-                    ProgressStyle::default_spinner()
-                        .template(template)
-                        .unwrap()
-                        .tick_chars(TICK_CHARS)
-                        .progress_chars(PROGRESS_CHARS),
-                );
+                let style = ProgressStyle::default_spinner()
+                    .template(template)
+                    .unwrap_or_else(|_| ProgressStyle::default_spinner());
+                pb.set_style(style.tick_chars(TICK_CHARS).progress_chars(PROGRESS_CHARS));
             }
             CustomStyle::Bar => {
-                pb.set_style(
-                    ProgressStyle::default_bar()
-                        .template(template)
-                        .unwrap()
-                        .tick_chars(TICK_CHARS)
-                        .progress_chars(PROGRESS_CHARS),
-                );
+                let style = ProgressStyle::default_bar()
+                    .template(template)
+                    .unwrap_or_else(|_| ProgressStyle::default_bar());
+                pb.set_style(style.tick_chars(TICK_CHARS).progress_chars(PROGRESS_CHARS));
             }
         }
     }

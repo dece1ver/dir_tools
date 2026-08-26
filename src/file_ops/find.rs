@@ -1,4 +1,4 @@
-use eyre::Result;
+use eyre::{Result, WrapErr};
 use indicatif::MultiProgress;
 use rayon::prelude::*;
 use regex::Regex;
@@ -12,7 +12,7 @@ use walkdir::{DirEntry, WalkDir};
 
 use super::{safe_file_name, safe_parent_dir};
 use crate::args::FindMode;
-use crate::file_ops::{create_progressbar, CustomStyle};
+use crate::file_ops::{CustomStyle, create_progressbar};
 
 #[derive(Debug)]
 pub struct SearchResult {
@@ -49,10 +49,12 @@ pub fn process_find(
         0,
     ));
 
-    let regex = pattern.and_then(|p| match mode {
-        FindMode::Regexp => Some(Regex::new(p).expect("Некорректное регулярное выражение")),
+    let regex = match (mode, pattern) {
+        (FindMode::Regexp, Some(p)) => {
+            Some(Regex::new(p).wrap_err("Некорректное регулярное выражение")?)
+        }
         _ => None,
-    });
+    };
     let regex = Arc::new(regex);
 
     let results: Vec<SearchResult> = WalkDir::new(directory)
@@ -200,7 +202,11 @@ fn write_results(
                     writeln!(
                         writer,
                         "\x1b]8;;file://{}\x1b\\\x1b[4:3m{}\x1b[4:0m\x1b]8;;\x1b\\",
-                        result.path.parent().unwrap().to_string_lossy(),
+                        result
+                            .path
+                            .parent()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default(),
                         result.path.display()
                     )?;
                 } else {
@@ -210,4 +216,41 @@ fn write_results(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(with_line: bool) -> SearchResult {
+        SearchResult {
+            path: PathBuf::from("/tmp/dir/file.txt"),
+            line_number: with_line.then_some(2),
+            matched_content: with_line.then(|| "match".to_string()),
+        }
+    }
+
+    #[test]
+    fn plain_output_has_no_hyperlinks() {
+        let results = vec![sample(true), sample(false)];
+        let mut out: Vec<u8> = Vec::new();
+
+        write_results(&mut out, &results, false).unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains("\x1b]8;;"));
+        assert!(text.contains("Строка 2: match"));
+        assert!(text.contains("file.txt"));
+    }
+
+    #[test]
+    fn console_output_contains_hyperlinks() {
+        let results = vec![sample(false)];
+        let mut out: Vec<u8> = Vec::new();
+
+        write_results(&mut out, &results, true).unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("\x1b]8;;file://"));
+    }
 }

@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 
-use super::{create_progressbar, CustomStyle};
+use super::{CustomStyle, create_progressbar};
 
 fn format_duration(seconds: u64) -> String {
     let minutes = seconds / 60;

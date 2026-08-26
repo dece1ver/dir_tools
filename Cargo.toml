@@ -1,7 +1,8 @@
 [package]
 name = "dir_tools"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
+rust-version = "1.85"
 repository = "https://github.com/dece1ver/dir_tools"
 readme = "README.md"
 keywords = ["directories", "tools", "filesystem"]

@@ -1,4 +1,4 @@
-use crate::file_ops::{create_progressbar, CustomStyle};
+use crate::file_ops::{CustomStyle, create_progressbar};
 use eyre::Result;
 use std::path::Path;
 use walkdir::WalkDir;

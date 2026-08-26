@@ -18,6 +18,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     if let Err(e) = process_directory(&args.operation) {
         eprintln!("{}", e);
+        std::process::exit(1);
     }
     Ok(())
 }

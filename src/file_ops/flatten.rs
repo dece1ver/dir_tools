@@ -1,20 +1,20 @@
-use eyre::{eyre, Result};
-use std::collections::hash_map::DefaultHasher;
+use eyre::{Result, eyre};
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
 
 use indicatif::MultiProgress;
 use rayon::prelude::*;
 
-use crate::file_ops::files_from;
 use crate::TICK_DURATION;
+use crate::file_ops::files_from;
 
-use super::{create_progressbar, CustomStyle};
+use super::{CustomStyle, create_progressbar};
 
 const NAME_LOCK_STRIPES: usize = 64;
 
@@ -121,7 +121,9 @@ pub fn process_flatten(
             let file_name = entry.file_name().to_string_lossy().to_string();
             current_file_pb.set_message(format!("Обработка: {}", file_name));
 
-            let _guard = name_locks[name_stripe(&file_name)].lock().unwrap();
+            let _guard = name_locks[name_stripe(&file_name)]
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
 
             let result = if replace_newest {
                 let dest_path = PathBuf::from(&*output_dir).join(&file_name);
@@ -133,13 +135,16 @@ pub fn process_flatten(
                 while local_existing.contains(&dest_path.to_string_lossy().to_string())
                     || existing_files
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(PoisonError::into_inner)
                         .contains(&dest_path.to_string_lossy().to_string())
                 {
                     let new_name = if let Some(ext) = dest_path.extension() {
                         format!(
                             "{} ({}).{}",
-                            dest_path.file_stem().unwrap().to_string_lossy(),
+                            dest_path
+                                .file_stem()
+                                .unwrap_or_else(|| dest_path.as_os_str())
+                                .to_string_lossy(),
                             counter,
                             ext.to_string_lossy()
                         )
@@ -150,8 +155,7 @@ pub fn process_flatten(
                     counter += 1;
                 }
 
-                transfer(entry.path(), &dest_path, move_files)
-                    .map(|_| Some(dest_path))
+                transfer(entry.path(), &dest_path, move_files).map(|_| Some(dest_path))
             };
 
             match result {
@@ -161,11 +165,11 @@ pub fn process_flatten(
                 Ok(None) => {
                     skipped_files
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(PoisonError::into_inner)
                         .push(entry.path().display().to_string());
                 }
                 Err(e) => {
-                    let mut errors = errors.lock().unwrap();
+                    let mut errors = errors.lock().unwrap_or_else(PoisonError::into_inner);
                     errors.push(format!(
                         "Ошибка {} файла {}: {}",
                         if move_files {
@@ -182,15 +186,22 @@ pub fn process_flatten(
             pb.inc(1);
         }
 
-        let mut global_existing = existing_files.lock().unwrap();
+        let mut global_existing = existing_files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         global_existing.extend(local_existing);
     });
 
     current_file_pb.finish_and_clear();
     pb.finish_with_message("Обработка файлов завершена");
 
-    let skipped = skipped_files.lock().unwrap();
-    if existing_files.lock().unwrap().is_empty() && skipped.is_empty() {
+    let skipped = skipped_files.lock().unwrap_or_else(PoisonError::into_inner);
+    if existing_files
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_empty()
+        && skipped.is_empty()
+    {
         eprintln!("Ничего не сделано.");
     } else {
         println!("Все файлы уплощены в {}", output_dir.display());
@@ -200,7 +211,7 @@ pub fn process_flatten(
             }
         }
     }
-    let errors = errors.lock().unwrap();
+    let errors = errors.lock().unwrap_or_else(PoisonError::into_inner);
     if !errors.is_empty() {
         for err in errors.iter() {
             eprintln!("{err}")
@@ -208,4 +219,87 @@ pub fn process_flatten(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+    use std::time::Duration;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dir_tools_{tag}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("создание временной директории");
+        dir
+    }
+
+    fn write(path: &Path, content: &str) {
+        fs::write(path, content).expect("запись тестового файла");
+    }
+
+    #[test]
+    fn stripe_is_deterministic_and_within_bounds() {
+        assert_eq!(name_stripe("a.txt"), name_stripe("a.txt"));
+        for i in 0..200 {
+            assert!(name_stripe(&format!("name{i}")) < NAME_LOCK_STRIPES);
+        }
+    }
+
+    #[test]
+    fn copies_when_dest_missing() {
+        let dir = temp_dir("missing");
+        let (src, dest) = (dir.join("src.txt"), dir.join("dest.txt"));
+        write(&src, "data");
+
+        let result = replace_newest_transfer(&src, &dest, false).unwrap();
+
+        assert_eq!(result, Some(dest.clone()));
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "data");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn skips_when_dest_newer() {
+        let dir = temp_dir("skip_older");
+        let (src, dest) = (dir.join("src.txt"), dir.join("dest.txt"));
+        write(&src, "old");
+        thread::sleep(Duration::from_millis(50));
+        write(&dest, "new");
+
+        let result = replace_newest_transfer(&src, &dest, false).unwrap();
+
+        assert_eq!(result, None);
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "new");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn replaces_when_source_newer() {
+        let dir = temp_dir("replace_newer");
+        let (src, dest) = (dir.join("src.txt"), dir.join("dest.txt"));
+        write(&dest, "old");
+        thread::sleep(Duration::from_millis(50));
+        write(&src, "fresh");
+
+        let result = replace_newest_transfer(&src, &dest, false).unwrap();
+
+        assert_eq!(result, Some(dest.clone()));
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "fresh");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn move_mode_removes_source() {
+        let dir = temp_dir("move");
+        let (src, dest) = (dir.join("src.txt"), dir.join("dest.txt"));
+        write(&src, "data");
+
+        let result = replace_newest_transfer(&src, &dest, true).unwrap();
+
+        assert_eq!(result, Some(dest.clone()));
+        assert!(!src.exists());
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "data");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

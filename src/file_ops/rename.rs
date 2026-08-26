@@ -1,15 +1,15 @@
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use crate::PROGRESS_CHARS;
 use crate::args::RenameTarget;
 use crate::file_ops::files_from;
-use crate::PROGRESS_CHARS;
 
 use super::{dirs_from, entries_from};
 
@@ -31,7 +31,7 @@ pub fn process_rename(
     count_pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.green} Подсчет {msg}...")
-            .unwrap(),
+            .unwrap_or_else(|_| ProgressStyle::default_spinner()),
     );
     count_pb.set_message(objects_title);
     count_pb.enable_steady_tick(Duration::from_millis(100));
@@ -60,14 +60,14 @@ pub fn process_rename(
     current_file_pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.green} {msg}")
-            .unwrap(),
+            .unwrap_or_else(|_| ProgressStyle::default_spinner()),
     );
 
     let pb = mp.add(ProgressBar::new(len));
     pb.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] [{bar:40.green}] {pos}/{len} ({eta})")
-            .unwrap()
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
             .progress_chars(PROGRESS_CHARS),
     );
 
@@ -94,12 +94,15 @@ pub fn process_rename(
                 .into_owned();
 
             if let Err(e) = fs::rename(entry.path(), &dest_path) {
-                errors.lock().unwrap().push(format!(
-                    "Ошибка переименования \"{}{}\": {}",
-                    entry.path().display(),
-                    if entry.path().is_dir() { "\\" } else { "" },
-                    e
-                ));
+                errors
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(format!(
+                        "Ошибка переименования \"{}{}\": {}",
+                        entry.path().display(),
+                        if entry.path().is_dir() { "\\" } else { "" },
+                        e
+                    ));
             } else {
                 processed.fetch_add(1, Ordering::Relaxed);
             }
@@ -122,7 +125,7 @@ pub fn process_rename(
         processed.load(Ordering::Relaxed)
     );
 
-    let errors = errors.lock().unwrap();
+    let errors = errors.lock().unwrap_or_else(PoisonError::into_inner);
     for error in errors.iter() {
         eprintln!("{}", error);
     }
