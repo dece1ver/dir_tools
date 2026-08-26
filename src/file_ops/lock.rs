@@ -45,17 +45,16 @@ pub fn process_lock(path: impl AsRef<Path>, timer: &Option<u64>, mode: &LockMode
             let duration = Duration::from_secs(*t);
 
             while start.elapsed() < duration {
-                if event::poll(Duration::from_millis(0))? {
-                    if let Event::Key(key) = event::read()? {
-                        if key.code == KeyCode::Esc {
-                            status_pb.finish_with_message(format!(
-                                "Блокировка файла {} прервана пользователем",
-                                path.display()
-                            ));
-                            progress_pb.finish_and_clear();
-                            return Ok(());
-                        }
-                    }
+                if event::poll(Duration::from_millis(0))?
+                    && let Event::Key(key) = event::read()?
+                    && key.code == KeyCode::Esc
+                {
+                    status_pb.finish_with_message(format!(
+                        "Блокировка файла {} прервана пользователем",
+                        path.display()
+                    ));
+                    progress_pb.finish_and_clear();
+                    return Ok(());
                 }
 
                 let elapsed = start.elapsed();
@@ -88,16 +87,15 @@ pub fn process_lock(path: impl AsRef<Path>, timer: &Option<u64>, mode: &LockMode
             ));
 
             loop {
-                if event::poll(Duration::from_millis(100))? {
-                    if let Event::Key(key) = event::read()? {
-                        if key.code == KeyCode::Esc {
-                            status_pb.finish_with_message(format!(
-                                "Блокировка файла {} прервана пользователем",
-                                path.display()
-                            ));
-                            return Ok(());
-                        }
-                    }
+                if event::poll(Duration::from_millis(100))?
+                    && let Event::Key(key) = event::read()?
+                    && key.code == KeyCode::Esc
+                {
+                    status_pb.finish_with_message(format!(
+                        "Блокировка файла {} прервана пользователем",
+                        path.display()
+                    ));
+                    return Ok(());
                 }
             }
         }

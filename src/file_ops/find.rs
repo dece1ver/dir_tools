@@ -113,14 +113,14 @@ fn process_content(entry: &DirEntry, pattern: &str) -> Option<SearchResult> {
     let file = File::open(entry.path()).ok()?;
     let reader = BufReader::new(file);
     for (line_num, line) in reader.lines().enumerate() {
-        if let Ok(content) = line {
-            if content.contains(pattern) {
-                return Some(SearchResult {
-                    path: entry.path().to_owned(),
-                    line_number: Some(line_num + 1),
-                    matched_content: Some(content),
-                });
-            }
+        if let Ok(content) = line
+            && content.contains(pattern)
+        {
+            return Some(SearchResult {
+                path: entry.path().to_owned(),
+                line_number: Some(line_num + 1),
+                matched_content: Some(content),
+            });
         }
     }
     None
@@ -133,14 +133,14 @@ fn process_regex(entry: &DirEntry, regex: &Regex) -> Option<SearchResult> {
     let file = File::open(entry.path()).ok()?;
     let reader = BufReader::new(file);
     for (line_num, line) in reader.lines().enumerate() {
-        if let Ok(content) = line {
-            if regex.is_match(&content) {
-                return Some(SearchResult {
-                    path: entry.path().to_owned(),
-                    line_number: Some(line_num + 1),
-                    matched_content: Some(content),
-                });
-            }
+        if let Ok(content) = line
+            && regex.is_match(&content)
+        {
+            return Some(SearchResult {
+                path: entry.path().to_owned(),
+                line_number: Some(line_num + 1),
+                matched_content: Some(content),
+            });
         }
     }
     None

@@ -99,22 +99,22 @@ fn print_tree(
 
         if entry.file_type().is_file() {
             println!();
-            if config.show_content {
-                if let Ok(content) = std::fs::read_to_string(entry_path) {
-                    let lines: Vec<_> = content.lines().collect();
-                    let lines_to_show = if config.full_content {
-                        lines.as_slice()
-                    } else {
-                        &lines[..lines.len().min(5)]
-                    };
+            if config.show_content
+                && let Ok(content) = std::fs::read_to_string(entry_path)
+            {
+                let lines: Vec<_> = content.lines().collect();
+                let lines_to_show = if config.full_content {
+                    lines.as_slice()
+                } else {
+                    &lines[..lines.len().min(5)]
+                };
 
-                    for line in lines_to_show {
-                        println!("{}{}│ {}", prefix, next_prefix, line);
-                    }
+                for line in lines_to_show {
+                    println!("{}{}│ {}", prefix, next_prefix, line);
+                }
 
-                    if !config.full_content && lines.len() > 5 {
-                        println!("{}{}│ ...", prefix, next_prefix);
-                    }
+                if !config.full_content && lines.len() > 5 {
+                    println!("{}{}│ ...", prefix, next_prefix);
                 }
             }
         } else {
