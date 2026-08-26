@@ -46,12 +46,18 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
             directory,
             output,
             move_files,
+            replace_newest,
         } => {
             let abs_dir = resolve_path(directory)?;
             let abs_output = output
                 .as_ref()
                 .map(|o| resolve_path(Path::new(o)).unwrap_or_else(|_| PathBuf::from(o)));
-            process_flatten(&abs_dir, abs_output.as_ref(), *move_files)
+            process_flatten(
+                &abs_dir,
+                abs_output.as_ref(),
+                *move_files,
+                *replace_newest,
+            )
         }
         Operation::Rename {
             directory,
