@@ -16,6 +16,7 @@ use expose::process_expose;
 use eyre::{Context, Result};
 use find::process_find;
 use flatten::process_flatten;
+use merge::process_merge;
 use rename::process_rename;
 
 pub mod append_folder_name;
@@ -23,7 +24,9 @@ pub mod expose;
 pub mod find;
 pub mod flatten;
 pub mod lock;
+pub mod merge;
 pub mod rename;
+pub mod transfer;
 pub mod tree;
 
 // Функция для преобразования относительных путей в абсолютные
@@ -88,6 +91,18 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
             let abs_path = resolve_path(path)?;
             process_lock(&abs_path, timer, mode)
         }
+        Operation::Merge {
+            directory,
+            output,
+            from,
+            move_files,
+        } => {
+            let abs_dir = resolve_path(directory)?;
+            let abs_output = output
+                .as_ref()
+                .map(|o| resolve_path(Path::new(o)).unwrap_or_else(|_| PathBuf::from(o)));
+            process_merge(&abs_dir, abs_output.as_ref(), from.as_deref(), *move_files)
+        }
         Operation::Tree {
             directory,
             show_content,
@@ -107,32 +122,6 @@ pub fn process_directory(operation: &Operation) -> Result<()> {
     }
 }
 
-pub fn files_from(directory: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
-    collect_entries(directory, |entry| entry.file_type().is_file())
-}
-
-pub fn dirs_from(directory: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
-    collect_entries(directory, |entry| entry.file_type().is_dir())
-}
-
-pub fn entries_from(directory: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
-    collect_entries(directory, |_| true)
-}
-
-fn collect_entries(
-    directory: impl AsRef<Path>,
-    predicate: impl Fn(&DirEntry) -> bool,
-) -> io::Result<Vec<DirEntry>> {
-    WalkDir::new(directory.as_ref())
-        .into_iter()
-        .filter_map(|e| match e {
-            Ok(entry) if predicate(&entry) => Some(Ok(entry)),
-            Ok(_) => None,
-            Err(e) => Some(Err(io::Error::other(e))),
-        })
-        .collect()
-}
-
 pub fn _ensure_directory(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     let path = path.as_ref();
     if !path.exists() {
@@ -149,6 +138,60 @@ pub fn safe_file_name(path: impl AsRef<Path>) -> Option<String> {
     path.as_ref()
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
+}
+
+pub fn count_walk(
+    directory: &Path,
+    pb: &ProgressBar,
+    predicate: impl Fn(&DirEntry) -> bool,
+) -> io::Result<Vec<DirEntry>> {
+    let mut entries = Vec::new();
+    for entry in WalkDir::new(directory)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if predicate(&entry) {
+            pb.inc(1);
+            let rel = entry
+                .path()
+                .strip_prefix(directory)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            pb.set_message(format_live_count(&rel, pb.position()));
+            entries.push(entry);
+        }
+    }
+    Ok(entries)
+}
+
+fn format_live_count(path: &str, count: u64) -> String {
+    let width = terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(80);
+    let msg_width = width.saturating_sub(22);
+    let count_str = count.to_string();
+    let count_w = unicode_width::UnicodeWidthStr::width(count_str.as_str());
+    let path_max = msg_width.saturating_sub(count_w + 1);
+    let truncated = truncate_left(path, path_max);
+    let used = unicode_width::UnicodeWidthStr::width(truncated.as_str());
+    let count_pad = msg_width.saturating_sub(used);
+    format!("{truncated}{count_str:>count_pad$}")
+}
+
+fn truncate_left(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    if max <= 3 {
+        return "...".to_string();
+    }
+    let cut = s.len() - (max - 3);
+    let cut = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .find(|&i| i >= cut)
+        .unwrap_or(s.len());
+    format!("...{}", &s[cut..])
 }
 
 trait IntoProgressLen {
@@ -225,4 +268,38 @@ where
 enum CustomStyle {
     Spinner,
     Bar,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn live_count_fits_within_terminal_and_right_aligns_count() {
+        let path = "0312211958/9/GILZA-AR112-01-002M8L.1UST.PBN";
+        let count = 37507_u64;
+
+        let rendered = format_live_count(path, count);
+
+        let total_width = UnicodeWidthStr::width(rendered.as_str());
+        assert!(total_width <= 80, "вывод шире терминала: {total_width}");
+
+        assert!(
+            rendered.trim_end().ends_with("37507"),
+            "счётчик должен быть в хвосте: {rendered}"
+        );
+    }
+
+    #[test]
+    fn live_count_truncates_long_cyrillic_path() {
+        let path = "очень/длинный/путь/на/кириллице/с/файлом.txt";
+        let count = 123_u64;
+
+        let rendered = format_live_count(path, count);
+
+        let total_width = UnicodeWidthStr::width(rendered.as_str());
+        assert!(total_width <= 80, "вывод шире терминала: {total_width}");
+        assert!(rendered.starts_with("..."), "путь должен быть обрезан слева");
+    }
 }

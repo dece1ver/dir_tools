@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::TICK_DURATION;
-use crate::file_ops::{CustomStyle, create_progressbar, files_from};
+use crate::file_ops::{count_walk, CustomStyle, create_progressbar};
 #[cfg(unix)]
 use crate::platform::unix::{print_unix_warning, rename_hidden_files};
 #[cfg(windows)]
@@ -18,8 +18,16 @@ pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
     #[cfg(unix)]
     {
         if _force {
-            let files = files_from(directory)?;
+            let count_pb = mp.add(create_progressbar(
+                "{spinner:.green} [{elapsed_precise}] {msg}",
+                CustomStyle::Spinner,
+                0,
+            ));
+            count_pb.enable_steady_tick(TICK_DURATION);
+
+            let files = count_walk(directory, &count_pb, |e| e.file_type().is_file())?;
             let file_count = files.len() as u64;
+            count_pb.finish_and_clear();
 
             let current_file_pb = mp.add(ProgressBar::new(0));
             current_file_pb.set_style(
@@ -66,10 +74,9 @@ pub fn process_expose(directory: impl AsRef<Path>, _force: bool) -> Result<()> {
             CustomStyle::Spinner,
             0,
         ));
-        count_pb.set_message("Подсчет файлов...");
         count_pb.enable_steady_tick(TICK_DURATION);
 
-        let files = files_from(directory)?;
+        let files = count_walk(directory, &count_pb, |e| e.file_type().is_file())?;
         let file_count = files.len();
         count_pb.finish_and_clear();
 

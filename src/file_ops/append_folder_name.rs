@@ -12,7 +12,7 @@ use std::{
 
 use crate::TICK_DURATION;
 
-use super::{CustomStyle, create_progressbar, files_from};
+use super::{count_walk, CustomStyle, create_progressbar};
 
 pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
     let directory = directory.as_ref();
@@ -23,8 +23,7 @@ pub fn process_afn(directory: impl AsRef<Path>, delimiter: &str) -> Result<()> {
         0,
     ));
     count_pb.enable_steady_tick(TICK_DURATION);
-    count_pb.set_message("Подсчет файлов...");
-    let files = files_from(directory)?;
+    let files = count_walk(directory, &count_pb, |e| e.file_type().is_file())?;
     let len = files.len() as u64;
     count_pb.finish_and_clear();
 

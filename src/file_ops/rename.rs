@@ -9,9 +9,8 @@ use std::time::Duration;
 
 use crate::PROGRESS_CHARS;
 use crate::args::RenameTarget;
-use crate::file_ops::files_from;
 
-use super::{dirs_from, entries_from};
+use super::count_walk;
 
 pub fn process_rename(
     directory: impl AsRef<Path>,
@@ -37,9 +36,9 @@ pub fn process_rename(
     count_pb.enable_steady_tick(Duration::from_millis(100));
 
     let entries = match target_type {
-        RenameTarget::Dirs => dirs_from(directory)?,
-        RenameTarget::Files => files_from(directory)?,
-        RenameTarget::Both => entries_from(directory)?,
+        RenameTarget::Dirs => count_walk(directory, &count_pb, |e| e.file_type().is_dir())?,
+        RenameTarget::Files => count_walk(directory, &count_pb, |e| e.file_type().is_file())?,
+        RenameTarget::Both => count_walk(directory, &count_pb, |_| true)?,
     };
 
     count_pb.finish_with_message(format!(

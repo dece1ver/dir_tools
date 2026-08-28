@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use std::fmt::{self, Display};
 use std::path::PathBuf;
 
@@ -78,6 +78,21 @@ pub enum Operation {
         /// Режим блокировки
         #[arg(default_value = "read-write")]
         mode: LockMode,
+    },
+    /// Слить похожие структуры директорий, сохранив дерево и самые новые версии файлов
+    Merge {
+        /// Родительская директория со снимками
+        directory: PathBuf,
+        /// Директория для сохранения результата
+        #[arg(short = 'o', long)]
+        output: Option<String>,
+        /// Снимки для слияния (glob-шаблон относительно directory); повторяйте для нескольких.
+        /// Без флага все прямые подпапки считаются снимками.
+        #[arg(short = 'F', long = "from", action = ArgAction::Append)]
+        from: Option<Vec<String>>,
+        /// Перемещать файлы вместо копирования
+        #[arg(short = 'm', long)]
+        move_files: bool,
     },
     /// Показать дерево директории с содержимым файлов
     Tree {
